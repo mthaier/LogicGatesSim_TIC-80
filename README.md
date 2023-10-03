@@ -1,1 +1,1 @@
-# LogicGatesSim-TIC-80
+# LogicGatesSim_TIC-80
