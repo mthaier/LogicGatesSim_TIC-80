@@ -1,0 +1,955 @@
+function TIC()
+	Input()
+	Update()
+	Render()
+end
+
+--Input
+function Input()
+end
+--Update
+function Update()
+	UpdateMainWave()
+	UpdateCursor()
+	UpdateLogic()
+	UpdateBoard()
+end
+--Rendering
+function Render()
+	cls(14)
+	
+	DrawBoard()
+	DrawToolbar()
+	DrawCursor()
+end
+
+---System: Board
+board={
+	scale=1,
+	movementSpeed=2,
+	pos={
+		x=0,
+		y=0,
+		cX=120,
+		cY=68
+	},
+	grid={
+		nVert=7,
+		nHorz=7,
+		c=6
+	},
+	border={
+		x=10,
+		y=18,
+		w=220,
+		h=116,
+		c=4}
+}
+function UpdateBoard()
+	---Zoom in/out
+	if btnp(4)then
+		ChangeScale()
+	end
+	---Move board if needed
+	MoveBoard()
+end
+function ChangeScale()
+	board.scale=
+		((board.scale==1)and(2)) or 1
+	board.pos.x,board.pos.y=0,0
+end
+function MoveBoard()
+	--Break
+	if board.scale==1 then return end
+	--Set forces
+	local xForce=
+		(btn(2) and board.movementSpeed)
+		or
+		(btn(3) and -board.movementSpeed)
+		or
+		(0)
+	local yForce=
+		(btn(0) and board.movementSpeed)
+		or
+		(btn(1) and -board.movementSpeed)
+		or
+		(0)
+	--Apply forces
+	board.pos.x=
+		Cutoff(board.pos.x+xForce,-120,120)
+	board.pos.y=
+		Cutoff(board.pos.y+yForce,-68,68)
+end
+function DrawBoard()
+	DrawBoard_Grid()
+	DrawBoard_Elements()
+	DrawBoard_Padding()
+end
+function DrawBoard_Grid()
+	---Dimensions
+	local lVert=240*board.scale
+ local lHorz=136*board.scale
+ local lVertHalf=lVert/2 
+ --Useful for centring
+ local lVertHalf=lVert/2
+ local lHorzHalf=lHorz/2
+ local lVertStep=(lVert/board.grid.nVert)/2
+ local lHorzStep=(lVert/board.grid.nHorz)/2
+  
+	---Vertical lines
+	for i=0,board.grid.nVert do
+		local off=i/board.grid.nVert
+		local x=120+(off*lVert)-lVertHalf+(lVertStep)
+		x=x+board.pos.x --Mapping to board center
+		line(
+			x,0,
+			x,136,
+			board.grid.c)
+	end
+	---Horizontal lines
+	for i=0,board.grid.nHorz do
+		local off=i/board.grid.nHorz
+		local y=68+(off*lHorz)-lHorzHalf+(lHorzStep)
+		y=y+board.pos.y --Mapping to board center
+		y=y+1 --For some reason it looks better when I add 1 lol
+		line(
+			0,y,
+			240,y,
+			board.grid.c)
+	end
+end
+function DrawBoard_Elements()
+ ---Wires
+	for _,el in pairs(elements)do
+		local inPinsHolder=el.pins.inputs
+		for _,pin in pairs(inPinsHolder) do
+			if pin.tag=="in" and #pin.connections==1 then
+				local pinIn,pinOut=pin,pin.connections[1]
+				local elIn,elOut=pinIn.parent,pinOut.parent
+				local x1,y1=PosToScreen(elIn.pos.x+pinIn.pos.x,elIn.pos.y+pinIn.pos.y+1)
+				local x2,y2=PosToScreen(elOut.pos.x+pinOut.pos.x,elOut.pos.y+pinOut.pos.y+1)
+				WiresAnim(x1,y1,x2,y2,pinOut.state)
+			end
+		end
+	end
+	---Elements
+	for i,v in ipairs(elements)do
+		local x,y=PosToScreen(v.pos.x,v.pos.y)
+		if v.type==elementType.switch then
+			local sprN=
+				(v.pins.outputs.pinA.state and 40) or 8
+			spr(
+				sprN,
+				x,y,
+				0,board.scale,0,0,
+				2,2)
+			--Button Action
+			if cursor.mode==cursorMode.default and
+					 BtnPressed(x,y,10*board.scale,10*board.scale)then
+				--TODO: switch switch
+				v.pins.outputs.pinA.state=
+					not v.pins.outputs.pinA.state
+			end
+		elseif v.type==elementType.led then
+			local sprN=10
+			
+			if v.pins.inputs.pinA.connections[1]~=nil then
+				if v.pins.inputs.pinA.connections[1].state then
+					sprN=42
+				end
+			end
+		
+			spr(
+				sprN,
+				x,y,
+				0,board.scale,0,0,
+				2,2)
+		else
+			--Rendering
+			spr(
+				v.type*2,
+				x,y,
+				0,board.scale,0,0,
+				2,2)
+		end
+	end
+	---Pins
+	for i,el in ipairs(elements)do
+		local pins=el.pins
+		
+		if pins.inputs.pinA~=nil then
+			local pin=pins.inputs.pinA
+			DrawPin(el,pin)
+		end
+		if pins.inputs.pinB~=nil then
+			local pin=pins.inputs.pinB
+			DrawPin(el,pin)
+		end
+		if pins.outputs.pinA~=nil then
+			local pin=pins.outputs.pinA
+			DrawPin(el,pin)
+		end
+	end
+	
+end
+function DrawPin(el,pin)
+	local color=10
+	
+	---Setting up the pin rect
+	--Base position
+	local xBase,yBase=el.pos.x,el.pos.y
+	xBase,yBase=
+		xBase+pin.pos.x,
+		yBase+pin.pos.y
+	xBase,yBase=PosToScreen(xBase,yBase)
+	--Base dimensions
+	local wBase,hBase=2,2
+	--Effects
+	local eff1=2
+	local eff2=2
+	
+	---Finalizing and rendering
+	local w,h=wBase+eff1,hBase+eff1
+	w,h=w*board.scale,h*board.scale
+	local x,y=xBase-w/4,yBase-h/4
+	--Hover animation
+	if BtnHover(x,y,w,h)then
+		w,h=w+eff2,h+eff2
+		x,y=xBase-w/4,yBase-h/4
+	end
+	--Rendering
+	rect(x,y,w,h,color)
+	pix(xBase,yBase,12)
+	
+	---Button actions	
+	--Case1: Cursor tries to drag a pin
+	if cursor.mode==cursorMode.default and BtnPressed(x,y,w,h)then
+		TouchPin(el,pin)
+	end
+	--Case2: Cursor tries pinning
+	if BtnUp(x,y,w,h)then
+		ConnectPin(
+			cursor.pinsState.draggedPin,
+			pin)
+	end
+end
+function DrawBoard_Padding()
+	local x,y,w,h=
+		board.border.x,
+		board.border.y,
+		board.border.w,
+		board.border.h
+	---Padding
+	--Upper and lower
+	rect(
+		0,0,
+		240,
+		board.border.y,
+		5)
+	rect(0,y+h,240,136,5)
+	--Left and right
+	rect(0,0,
+	board.border.x,
+	136,5)
+	rect(x+w,0,240,136,5)
+	---Outline
+	rectb(
+		x,y,
+		w,h,
+		board.border.c)
+end
+
+---System: Cursor
+cursorMode={
+	default=0,
+	drag=1,
+	pinning=2
+}
+cursor={
+	pos={
+		x=0,y=0
+	},
+	isPressed=false,
+	wasDown=false,
+	isDown=false,
+	
+	mode=cursorMode.default,
+	sprN=0,
+	elementType=0,
+	
+	dragState={
+		canDrop=false
+	},
+	pinsState={
+		el=nil,
+		draggedPin=nil
+	}
+}
+function UpdateCursor()
+	UpdateCursor_State()
+	UpdateCursor_DragState()
+	
+	---Clear cursor data
+	ClearCursor()
+end
+function UpdateCursor_State()
+	local x,y,p=mouse()
+	--Update cursor position
+	cursor.pos.x,cursor.pos.y=x,y
+	--Update cursor state
+	cursor.isPressed=
+		(not cursor.isDown and p)
+	cursor.wasDown=cursor.isDown
+	cursor.isDown=p
+end
+function UpdateCursor_DragState()
+	--Is it legal for dragged element to drop
+	for i,v in pairs(elements)do
+		--Element rect
+		local x,y=
+			PosToScreen(v.pos.x,v.pos.y)
+		local elementL=board.scale*16
+		--Test if can drop	
+		if CanDrop(x,y,elementL,elementL)then
+			TurnDragDroppable(true)
+		else
+			TurnDragDroppable(false)
+			return
+		end
+	end
+end
+function DrawCursor()
+	--Might have multiple drawing modes later
+	if cursor.mode==cursorMode.drag then
+		DrawCursor_Drag()
+	elseif cursor.mode==cursorMode.pinning then
+		DrawCursor_Pinning()
+	end
+end
+function DrawCursor_Drag()
+	spr(
+		cursor.sprN,
+		cursor.pos.x-8,cursor.pos.y-8,
+		0,1,0,0,
+		2,2)
+	if not cursor.dragState.canDrop then
+		BadPlaceBoxAnim(
+			cursor.pos.x-8,cursor.pos.y-8,
+			16,16)
+	end
+end
+function DrawCursor_Pinning()
+	local pin=cursor.pinsState.draggedPin
+	local x1,y1=
+		PosToScreen(pin.parent.pos.x,pin.parent.pos.y)
+	x1,y1=x1+pin.pos.x,y1+pin.pos.y
+	
+	WiresAnim(
+		cursor.pos.x,cursor.pos.y,
+		x1,y1,
+		pin.state)
+end
+function ClearCursor()
+	--Clear dragging
+	if cursor.mode==cursorMode.drag and not cursor.isDown then
+		cursor.mode=cursorMode.default
+		if cursor.dragState.canDrop then
+			DropElement()
+		end
+	elseif cursor.mode==cursorMode.pinning and not cursor.isDown then
+		CancelPinTouch()
+	end
+end
+--Cursor helpers
+function DragElement(sprN,elementType)
+	cursor.mode=cursorMode.drag
+	cursor.sprN=sprN
+	cursor.elementType=elementType
+	cursor.dragState.canDrop=true
+end
+function DropElement()
+	--Update cursor information
+	cursor.mode=cursorMode.default
+	--Determine the element position
+	local centerEff=8*board.scale
+	local x=
+		(cursor.pos.x-centerEff)
+		-board.pos.cX-board.pos.x
+	x=x/board.scale
+ local y=
+		(cursor.pos.y-centerEff)
+		-board.pos.cY-board.pos.y
+	y=y/board.scale
+	--Add the new element
+	AddElement(
+		cursor.elementType,
+		x,y)
+end
+function TurnDragDroppable(val)
+	cursor.dragState.canDrop=val
+end
+function TouchPin(el,pin)
+	--Update cursor informaion
+	cursor.mode=cursorMode.pinning
+	cursor.pinsState.draggedPin=pin
+end
+function ConnectPin(pin1,pin2)
+	---Updaet cursor
+	cursor.mode=cursorMode.pinning
+	
+	---Cancel the connection if needed
+	if pin1.tag==pin2.tag then
+		CancelPinTouch()
+	end
+	
+	---Connect
+	--Setup pins	
+	local pinIn,pinOut
+	local pinInEl,pinOutEl
+	if pin1.tag=="in" then
+		pinInE,pinIn=el1,pin1
+		pinOutE,pinOut=el2,pin2
+	else
+		pinInE,pinIn=el2,pin2
+		pinOutE,pinOut=el1,pin1
+	end
+	--Destroy pins previous connections
+	DestroyPinsConnection(pinIn,pinOut)
+	--Update new connections connections
+	InitPinsConnecion(pinIn,pinOut)
+end
+function CancelPinTouch()
+	--Update cursor information
+	cursor.mode=cursorMode.default
+end
+function DestroyPinsConnection(pinIn,pinOut)
+	pinIn.connections[1]=nil
+	for i=#pinOut.connections,1,-1 do
+		if pinOut.connections[i]==pinIn then
+			table.remove(pinOut.connections,i)
+			return
+		end
+	end
+end
+function InitPinsConnecion(pinIn,pinOut)
+	pinIn.connections[1]=pinOut
+	pinOut.connections[#pinOut.connections+1]=pinIn
+end
+
+--Cursor helpesr, transform tool
+function TouchTransform(element)
+end
+
+---System: Toolbar
+toolbar={
+	n=6,
+	pos={
+		cX=120,
+		cY=1,
+		w=150,
+		h=16
+		},
+	c=7
+}
+--[[ Note: the following
+function not only draws the toolbar,
+but perform the actual actions of the
+buttons, it's a bad design but I'm
+keeping it like this until I figure
+a better solution
+--]]
+function DrawToolbar()
+	---Elements
+	for i=0,toolbar.n-1 do
+		local off=i/(toolbar.n-1)
+		local x=
+			(toolbar.pos.w/2)*((off-.5)*2)
+		x=x+toolbar.pos.cX-8 --Centering
+		local y=toolbar.pos.cY
+		
+		--Hover animation event
+		if BtnHover(x,y,16,16)then
+			y=y+1
+		end
+		--Button press actions
+		if BtnPressed(x,y,16,16)then
+			DragElement(i*2,i)
+		end
+		
+		spr(i*2,x,y,0,1,0,0,2,2)
+		rectb(x-2,y,16+4,16,12)
+	end
+end
+
+---System: Elements
+elementType={
+	gateNot=0,
+	gateOr=1,
+	gateAnd=2,
+	gateXor=3,
+	switch=4,
+	led=5
+}
+elements={}
+function AddElement(type,x,y)
+	local newElement={}
+	if type==elementType.dummy then
+		newElement=CreateDummy(x,y)
+	elseif type==elementType.gateNot then
+		newElement=CreateGate_Not(x,y)
+	elseif type==elementType.gateOr then
+		newElement=CreateGate_Or(x,y)
+	elseif type==elementType.gateAnd then
+		newElement=CreateGate_And(x,y)
+	elseif type==elementType.gateXor then
+		newElement=CreateGate_Xor(x,y)
+	elseif type==elementType.switch then
+		newElement=CreateSwitch(x,y)
+	elseif type==elementType.led then
+		newElement=CreateLed(x,y)
+	end
+	
+	table.insert(elements,newElement)
+end
+
+---System: Logic
+function UpdateLogic()
+	---Solve
+	for i,el in ipairs(elements)do
+		SolveElement(el)
+	end
+	
+	---Unsolve
+	for i,el in ipairs(elements)do
+		el.solved=false
+	end
+end
+function SolveElement(element)
+	if element.solved then return end
+		SolveElement_Switch()
+	if element.type==elementType.switch then
+	elseif element.type==elementType.gateNot then
+		SolveElement_Not(element)
+	elseif element.type==elementType.gateOr then
+		SolveElement_Or(element)
+	elseif element.type==elementType.gateAnd then
+		SolveElement_And(element)
+	elseif element.type==elementType.gateXor then
+		SolveElement_Xor(element)
+	end
+	
+	element.solved=true
+end
+function SolveElement_Switch(element)
+end
+function SolveElement_Not(element)
+	local pinIn=element.pins.inputs.pinA
+	local pinOut=element.pins.outputs.pinA
+
+	if pinIn.connections[1]~=nil then
+		SolveElement(pinIn.connections[1])
+		pinIn.state=pinIn.connections[1].state	
+	else
+		pinIn.state=false
+		pinOut.state=false
+		return
+	end
+	
+	pinOut.state=Not(pinIn.state)
+end
+function SolveElement_Or(element)
+	local pinInA=element.pins.inputs.pinA
+	local pinInB=element.pins.inputs.pinB
+	local pinOut=element.pins.outputs.pinA
+	
+	if pinInA.connections[1]~=nil then
+		SolveElement(pinInA.connections[1])
+		pinInA.state=pinInA.connections[1].state
+	end
+	if pinInB.connections[1]~=nil then
+		SolveElement(pinInB.connections[1])
+		pinInB.state=pinInB.connections[1].state
+	end
+	
+	pinOut.state=Or(pinInA.state,pinInB.state)
+end
+function SolveElement_And(element)
+	local pinInA=element.pins.inputs.pinA
+	local pinInB=element.pins.inputs.pinB
+	local pinOut=element.pins.outputs.pinA
+	
+	if pinInA.connections[1]~=nil then
+		SolveElement(pinInA.connections[1])
+		pinInA.state=pinInA.connections[1].state
+	end
+	if pinInB.connections[1]~=nil then
+		SolveElement(pinInB.connections[1])
+		pinInB.state=pinInB.connections[1].state
+	end
+	
+	pinOut.state=And(pinInA.state,pinInB.state)
+end
+function SolveElement_Xor(element)
+	local pinInA=element.pins.inputs.pinA
+	local pinInB=element.pins.inputs.pinB
+	local pinOut=element.pins.outputs.pinA
+	
+	if pinInA.connections[1]~=nil then
+		SolveElement(pinInA.connections[1])
+		pinInA.state=pinInA.connections[1].state
+	end
+	if pinInB.connections[1]~=nil then
+		SolveElement(pinInB.connections[1])
+		pinInB.state=pinInB.connections[1].state
+	end
+	
+	pinOut.state=Xor(pinInA.state,pinInB.state)
+end
+
+---Helpers: Buttons
+function BtnHover(x,y,w,h)
+	if InRange(cursor.pos.x,x,x+w) and InRange(cursor.pos.y,y,y+h)then
+		return true
+	end
+
+	return false
+end
+function BtnPressed(x,y,w,h)
+	if cursor.isPressed and
+				InRange(cursor.pos.x,x,x+w) and 
+				InRange(cursor.pos.y,y,y+h) then
+		return true
+	end
+
+	return false
+end
+function BtnDown(x,y,w,h)
+	if not cursor.wasDown and
+				cursor.isDown and
+				InRange(cursor.pos.x,x,x+w) and 
+				InRange(cursor.pos.y,y,y+h) then
+			return true
+	end
+	
+	return false
+end
+function BtnUp(x,y,w,h)
+	if cursor.wasDown and
+				not cursor.isDown and
+				InRange(cursor.pos.x,x,x+w) and 
+				InRange(cursor.pos.y,y,y+h) then
+			return true
+	end
+	
+	return false
+end
+
+
+---Helpers: Dragging
+function CanDrop(x1,y1,w1,h1)
+	--Dragged element rect
+	local x2,y2=cursor.pos.x,cursor.pos.y
+	local elementL=board.scale*16
+	x2,y2=x2-elementL/2,y2-elementL/2
+	--Check for rects interactions
+	if InRange(x1,x2,x2+elementL)or InRange(x1+w1,x2,x2+elementL)then
+		if InRange(y1,y2,y2+elementL)or InRange(y1+h1,y2,y2+elementL)then
+			return false
+		end
+	end
+	
+	return true
+end
+
+---Helpers: Gates creation
+elementType={
+	gateNot=0,
+	gateOr=1,
+	gateAnd=2,
+	gateXor=3,
+	switch=4,
+	led=5
+}
+function CreateSwitch(x,y)
+	local element={
+		type=elementType.switch,
+		pos={x=x,y=y},
+		pins={},
+		solved=false
+	}
+	
+	local _outPinA=CreatePin(element,"out",17,9)
+	_outPinA.state=true
+	local outPins={
+		pinA=_outPinA
+	}
+	local inPins={}
+	local pins={
+		inputs=inPins,
+		outputs=outPins
+	}
+	element.pins=pins
+
+	return element
+end
+function CreateLed(x,y)
+	local element={
+		type=elementType.led,
+		pos={x=x,y=y},
+		pins={},
+		solved=false
+	}
+	
+	local _inPinA=CreatePin(element,"in",7,16)
+	local inPins={
+		pinA=_inPinA
+	}
+	local outPins={}
+	local pins={
+		inputs=inPins,
+		outputs=outPins
+	}
+	element.pins=pins
+	
+	return element
+end
+function CreateDummy(x,y)
+	local _pinInTest=CreatePin("in",0,0)
+	return{
+		pos={x=x,y=y},
+		pins={
+		}
+	}
+end
+function CreateGate_Not(x,y)
+	local element={
+		type=elementType.gateNot,
+		pos={x=x,y=y},
+		pins={},
+		solved=false
+	}
+	
+	local _inPinA=CreatePin(element,"in",-2,7)
+	local _outPinA=CreatePin(element,"out",17,7)
+	local inPins={
+		pinA=_inPinA
+	}
+	local outPins={
+		pinA=_outPinA
+	}
+	local pins={
+			inputs=inPins,
+			outputs=outPins
+	}
+	element.pins=pins
+	
+	return element
+end
+function CreateGate_Or(x,y)
+	local element={
+		type=elementType.gateOr,
+		pos={x=x,y=y},
+		pins={},
+		solved=false
+	}
+	
+	local _inPinA=CreatePin(element,"in",-3,4)
+	local _inPinB=CreatePin(element,"in",-3,10)
+	local _outPinA=CreatePin(element,"out",17,7)
+	local inPins={
+		pinA=_inPinA,
+		pinB=_inPinB
+	}
+	local outPins={
+		pinA=_outPinA
+	}
+	local pins={
+			inputs=inPins,
+			outputs=outPins
+	}
+	element.pins=pins
+	
+	return element
+end
+function CreateGate_And(x,y)
+	local element={
+		type=elementType.gateAnd,
+		pos={x=x,y=y},
+		pins={},
+		solved=false
+	}
+	
+	local _inPinA=CreatePin(element,"in",-3,4)
+	local _inPinB=CreatePin(element,"in",-3,10)
+	local _outPinA=CreatePin(element,"out",17,7)
+	local inPins={
+		pinA=_inPinA,
+		pinB=_inPinB
+	}
+	local outPins={
+		pinA=_outPinA
+	}
+	local pins={
+			inputs=inPins,
+			outputs=outPins
+	}
+	element.pins=pins
+	
+	return element
+end
+function CreateGate_Xor(x,y)
+	local element={
+		type=elementType.gateXor,
+		pos={x=x,y=y},
+		pins={},
+		solved=false
+	}
+	
+	local _inPinA=CreatePin(element,"in",-3,4)
+	local _inPinB=CreatePin(element,"in",-3,10)
+	local _outPinA=CreatePin(element,"out",17,7)
+	local inPins={
+		pinA=_inPinA,
+		pinB=_inPinB
+	}
+	local outPins={
+		pinA=_outPinA
+	}
+	local pins={
+			inputs=inPins,
+			outputs=outPins
+	}
+	element.pins=pins
+	
+	return element
+end
+
+--Pins creation
+function CreatePin(parentElement,_tag,_x,_y)
+	return {
+		parent=parentElement,
+		tag=_tag,
+		
+		pos={x=_x,y=_y},
+		
+		state=false,
+		connections={}
+	}
+end
+
+---Helpers: Logical operations
+function Not(state)
+	return not state
+end
+function Or(state1,state2)
+	return (state1 or state2)
+end
+function And(state1,state2)
+	return (state1 and state2)
+end
+function Xor(state1,state2)
+	if state1==state2 then
+		return false
+	end
+	return (state1 or state2)
+end
+
+---General: Math
+function Cutoff(val,min,max)
+	return	
+		(val<min and min)
+		or(val>max and max)
+		or val
+end
+function InRange(val,min,max)
+	return (val>=min and val<=max)
+end
+function PosToScreen(x,y)
+	local xScreen=
+		board.pos.cX+board.pos.x+(x*board.scale)
+	local yScreen=
+		board.pos.cY+board.pos.y+(y*board.scale)
+		
+	return xScreen,yScreen
+end
+function Distance(x1,y1,x2,y2)
+	return math.sqrt(((x1-x2)^2) + ((y1-y2)^2))
+end
+
+---General: Main wave
+mainWave={
+	speed=.1,
+	off=0
+}
+function UpdateMainWave()
+	mainWave.off=
+		mainWave.off+mainWave.speed
+	if mainWave.off>math.pi*2*1 then
+		mainWave.off=0
+	end
+end
+function Y(x)
+	x=x+mainWave.off
+	return (math.sin(x)+1)/2
+end
+
+---General: Animations
+function BadPlaceBoxAnim(x,y,w,h)
+	local c=9
+	rectb(x,y,w,h,c)
+	line(x,y,x+w-1,y+h-1,c)
+	line(x,y+h-1,x+w-1,y,c)
+end
+function WiresAnim_Debug()
+	local xA,yA=120,68
+	local xB,yB=mouse()
+	
+	WiresAnim(xA,yA,xB,yB,true)
+end
+wireAnim={
+	period=5,
+	ticksPerPeriod=3
+}
+function WiresAnim(xA,yA,xB,yB,isOn)
+	local xDiff=xB-xA
+	local x1,y1=xA,yA
+	local x2,y2=xA+xDiff/2,yA
+	local x3,y3=xA+xDiff/2,yB
+	local x4,y4=xB,yB
+	
+	--Draw three wires
+	
+	local startTick=0
+	WiresAnim_Line(x1,y1,x2,y2,startTick,isOn)
+	startTick=Distance(x1,y1,x2,y2)*(wireAnim.ticksPerPeriod/wireAnim.period)
+	startTick=math.floor(startTick) 
+	WiresAnim_Line(x2,y2,x3,y3,startTick,isOn)
+	startTick=startTick+Distance(x2,y2,x3,y3)*(wireAnim.ticksPerPeriod/wireAnim.period) 
+	WiresAnim_Line(x3,y3,x4,y4,startTick,isOn)
+end
+function WiresAnim_Line(x1,y1,x2,y2,startTick,isOn)
+	local c1,c2=11,13
+	local xDiff,yDiff=x2-x1,y2-y1
+	if isOn then
+		--Base line
+		line(x1,y1,x2,y2,c2)
+		local ticks=
+			Distance(x1,y1,x2,y2)*(wireAnim.ticksPerPeriod/wireAnim.period)
+		ticks=math.floor(ticks)
+		if ticks==0 then return end
+		
+		for i=0,ticks do
+			--Offsets
+			local off=i/ticks
+			local waveOff=(i+startTick)/wireAnim.period
+			local eff=Y(waveOff*math.pi)
+			--Transform
+			local x,y=x1+xDiff*off,y1+yDiff*off
+			local r=3*eff
+			--Drawing
+			circ(x,y,r,c2)
+		end
+	else
+		line(x1,y1,x2,y2,c1)
+	end
+end
