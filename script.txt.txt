@@ -1,3 +1,11 @@
+-- title:   Logic Gates Simulator
+-- author:  Mohammed Thaier
+-- desc:    A simple logic gates simulator prototype
+-- site:    https://github.com/itsMohammedThaier
+-- license: MIT License
+-- version: 0.1
+-- script:  lua
+
 function TIC()
 	Input()
 	Update()
